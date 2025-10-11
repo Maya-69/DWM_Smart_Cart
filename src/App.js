@@ -1,32 +1,21 @@
 import React, { useState, useEffect } from 'react';
-import { ShoppingCart, TrendingUp, X, Plus, Minus, Brain, Filter, ChevronDown } from 'lucide-react';
+import { Search, ShoppingCart, Heart, TrendingUp, X, ChevronRight, Sparkles, Package, Users, BarChart3, Brain } from 'lucide-react';
+import './App.css';
 
 const API_URL = 'http://localhost:5000/api';
 
 const App = () => {
   const [products, setProducts] = useState([]);
   const [cart, setCart] = useState([]);
-  const [recommendations, setRecommendations] = useState([]);
-  const [aiInsights, setAiInsights] = useState(null);
-  const [showGraph, setShowGraph] = useState(false);
-  const [categories, setCategories] = useState([]);
-  const [selectedCategory, setSelectedCategory] = useState('all');
-  const [sortBy, setSortBy] = useState('popular');
-  const [loading, setLoading] = useState(false);
+  const [recommendationsMap, setRecommendationsMap] = useState({});
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showAIInsights, setShowAIInsights] = useState(false);
+  const [aiTree, setAiTree] = useState(null);
+  const [loadingRecs, setLoadingRecs] = useState({});
 
   useEffect(() => {
     fetchProducts();
-    fetchCategories();
   }, []);
-
-  useEffect(() => {
-    if (cart.length > 0) {
-      fetchRecommendations();
-    } else {
-      setRecommendations([]);
-      setAiInsights(null);
-    }
-  }, [cart]);
 
   const fetchProducts = async () => {
     try {
@@ -34,36 +23,47 @@ const App = () => {
       const data = await response.json();
       setProducts(data);
     } catch (error) {
-      console.error('Error fetching products:', error);
+      console.error('Error:', error);
     }
   };
 
-  const fetchCategories = async () => {
+  const fetchRecommendationsForItem = async (productId) => {
+    if (recommendationsMap[productId]) return; // Already fetched
+    
+    setLoadingRecs(prev => ({ ...prev, [productId]: true }));
+    
     try {
-      const response = await fetch(`${API_URL}/categories`);
+      const response = await fetch(`${API_URL}/recommendations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cart_items: [productId] })
+      });
       const data = await response.json();
-      setCategories(data);
+      
+      setRecommendationsMap(prev => ({
+        ...prev,
+        [productId]: data.slice(0, 4) // Get top 4 recommendations
+      }));
     } catch (error) {
-      console.error('Error fetching categories:', error);
+      console.error('Error:', error);
+    } finally {
+      setLoadingRecs(prev => ({ ...prev, [productId]: false }));
     }
   };
 
-  const fetchRecommendations = async () => {
-    setLoading(true);
+  const fetchAIInsights = async () => {
     try {
       const cartIds = cart.map(item => item.id);
-      const response = await fetch(`${API_URL}/recommendations`, {
+      const response = await fetch(`${API_URL}/ai-insights`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cart_items: cartIds })
       });
       const data = await response.json();
-      setRecommendations(data.recommendations || []);
-      setAiInsights(data.ai_insights || null);
+      setAiTree(data);
+      setShowAIInsights(true);
     } catch (error) {
-      console.error('Error fetching recommendations:', error);
-    } finally {
-      setLoading(false);
+      console.error('Error:', error);
     }
   };
 
@@ -75,6 +75,8 @@ const App = () => {
       ));
     } else {
       setCart([...cart, { ...product, quantity: 1 }]);
+      // Fetch recommendations for this specific item
+      fetchRecommendationsForItem(product.id);
     }
   };
 
@@ -89,799 +91,431 @@ const App = () => {
     }
   };
 
-  const deleteFromCart = (productId) => {
-    setCart(cart.filter(item => item.id !== productId));
+  const getCartItemQuantity = (productId) => {
+    const item = cart.find(item => item.id === productId);
+    return item ? item.quantity : 0;
   };
 
   const getCartTotal = () => {
     return cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
   };
 
-  const formatNumber = (num) => {
-    if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
-    return num;
+  const isInCart = (productId) => {
+    return cart.some(item => item.id === productId);
   };
 
-  const getFilteredProducts = () => {
-    let filtered = selectedCategory === 'all' 
-      ? products 
-      : products.filter(p => p.category === selectedCategory);
-    
-    if (sortBy === 'popular') {
-      filtered = [...filtered].sort((a, b) => b.total_purchases - a.total_purchases);
-    } else if (sortBy === 'price_low') {
-      filtered = [...filtered].sort((a, b) => a.price - b.price);
-    } else if (sortBy === 'price_high') {
-      filtered = [...filtered].sort((a, b) => b.price - a.price);
-    }
-    
-    return filtered;
-  };
+  const filteredProducts = products.filter(p => 
+    p.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  if (showAIInsights) {
+    return <AIInsightsPage aiTree={aiTree} cart={cart} onBack={() => setShowAIInsights(false)} />;
+  }
 
   return (
-    <div style={{ background: '#0f172a', minHeight: '100vh', padding: '24px' }}>
-      <style>{`
-        @keyframes slideDown { from { opacity: 0; transform: translateY(-20px); } to { opacity: 1; transform: translateY(0); } }
-        @keyframes fadeIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
-        @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
-        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.8; } }
-        @keyframes shimmer { 0% { background-position: -1000px 0; } 100% { background-position: 1000px 0; } }
-        .card-hover { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
-        .card-hover:hover { transform: translateY(-4px); box-shadow: 0 20px 40px rgba(99, 102, 241, 0.3); }
-        .btn-hover { transition: all 0.2s ease; }
-        .btn-hover:hover { transform: scale(1.02); filter: brightness(1.1); }
-        .btn-hover:active { transform: scale(0.98); }
-        .gradient-text { background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-        .glass { background: rgba(255, 255, 255, 0.05); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); }
-        .loading { background: linear-gradient(90deg, #1e293b 0%, #334155 50%, #1e293b 100%); background-size: 1000px 100%; animation: shimmer 2s infinite; }
-      `}</style>
-
-      <div style={{ maxWidth: '1600px', margin: '0 auto' }}>
-        {/* Header */}
-        <div className="glass" style={{ 
-          borderRadius: '20px', 
-          padding: '28px 40px', 
-          marginBottom: '24px', 
-          display: 'flex', 
-          justifyContent: 'space-between', 
-          alignItems: 'center',
-          animation: 'slideDown 0.6s ease-out',
-          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)'
-        }}>
-          <div>
-            <h1 className="gradient-text" style={{ margin: 0, fontSize: '36px', fontWeight: '900', letterSpacing: '-1px' }}>
-              SmartCart AI
-            </h1>
-            <p style={{ margin: '8px 0 0 0', color: '#94a3b8', fontSize: '15px', fontWeight: '500' }}>
-              Advanced ML-powered shopping intelligence
-            </p>
+    <div className="app">
+      {/* Header */}
+      <header className="header">
+        <div className="header-content">
+          <h1 className="logo">🛒 SmartCart</h1>
+          <div className="search-bar">
+            <Search size={20} className="search-icon" />
+            <input 
+              type="text" 
+              placeholder="Search for products..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
           </div>
-          <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
-            <button
-              onClick={() => setShowGraph(!showGraph)}
-              className="btn-hover"
-              disabled={cart.length === 0}
-              style={{ 
-                background: cart.length > 0 ? 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)' : 'rgba(255,255,255,0.1)', 
-                border: 'none', 
-                padding: '14px 28px', 
-                borderRadius: '14px', 
-                cursor: cart.length > 0 ? 'pointer' : 'not-allowed', 
-                display: 'flex', 
-                alignItems: 'center', 
-                gap: '10px', 
-                fontWeight: '700', 
-                color: 'white', 
-                fontSize: '15px',
-                opacity: cart.length > 0 ? 1 : 0.4
-              }}
-            >
-              <Brain size={20} />
-              AI Insights
-            </button>
-            <div style={{ 
-              background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)', 
-              color: 'white', 
-              padding: '16px 32px', 
-              borderRadius: '16px', 
-              display: 'flex', 
-              alignItems: 'center', 
-              gap: '14px', 
-              fontWeight: '700',
-              boxShadow: '0 8px 24px rgba(99, 102, 241, 0.4)'
-            }}>
+          <div className="header-actions">
+            {cart.length > 0 && (
+              <button className="ai-insights-btn" onClick={fetchAIInsights}>
+                <Brain size={20} />
+                <span>AI Insights</span>
+              </button>
+            )}
+            <div className="cart-icon-wrapper">
               <ShoppingCart size={24} />
-              <span style={{ fontSize: '16px' }}>{cart.length} items</span>
-              <div style={{ width: '2px', height: '24px', background: 'rgba(255,255,255,0.3)' }} />
-              <span style={{ fontSize: '20px', fontWeight: '900' }}>₹{getCartTotal()}</span>
+              {cart.length > 0 && (
+                <span className="cart-badge">{cart.length}</span>
+              )}
             </div>
           </div>
         </div>
+      </header>
 
-        {/* AI Insights Graph */}
-        {showGraph && aiInsights && (
-          <div className="glass" style={{ 
-            borderRadius: '20px', 
-            padding: '32px', 
-            marginBottom: '24px',
-            animation: 'slideUp 0.5s ease-out',
-            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
-              <Brain size={28} style={{ color: '#6366f1' }} />
-              <h3 style={{ margin: 0, fontSize: '24px', fontWeight: '900', color: 'white' }}>
-                AI Intent Analysis
-              </h3>
-            </div>
-            
-            {/* Detected Intent */}
-            <div style={{ 
-              background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)', 
-              borderRadius: '16px', 
-              padding: '24px',
-              marginBottom: '24px'
-            }}>
-              <div style={{ fontSize: '14px', color: 'rgba(255,255,255,0.8)', fontWeight: '600', marginBottom: '8px' }}>
-                🎯 DETECTED INTENT
-              </div>
-              <div style={{ fontSize: '28px', fontWeight: '900', color: 'white', marginBottom: '12px' }}>
-                {aiInsights.intent}
-              </div>
-              <div style={{ fontSize: '15px', color: 'rgba(255,255,255,0.9)', lineHeight: '1.6' }}>
-                {aiInsights.reasoning}
-              </div>
-              <div style={{ 
-                display: 'flex', 
-                gap: '12px', 
-                marginTop: '16px',
-                flexWrap: 'wrap'
-              }}>
-                <div style={{ 
-                  background: 'rgba(255,255,255,0.2)', 
-                  padding: '8px 16px', 
-                  borderRadius: '10px',
-                  fontSize: '14px',
-                  fontWeight: '700',
-                  color: 'white'
-                }}>
-                  Confidence: {aiInsights.confidence}%
-                </div>
-                {aiInsights.categories.map((cat, i) => (
-                  <div key={i} style={{ 
-                    background: 'rgba(255,255,255,0.15)', 
-                    padding: '8px 16px', 
-                    borderRadius: '10px',
-                    fontSize: '13px',
-                    fontWeight: '600',
-                    color: 'white'
-                  }}>
-                    #{cat}
-                  </div>
-                ))}
-              </div>
-            </div>
+      {/* Main Content */}
+      <main className="main-content">
+        <div className="container">
+          
+          {/* Products Section */}
+          <section className="products-section">
+            <h2 className="section-title">All Products</h2>
+            <div className="products-list">
+              {filteredProducts.map(product => {
+                const quantity = getCartItemQuantity(product.id);
+                const inCart = isInCart(product.id);
+                const recommendations = recommendationsMap[product.id] || [];
+                const loading = loadingRecs[product.id];
 
-            {/* Graph Visualization */}
-            <div style={{ 
-              background: 'rgba(15, 23, 42, 0.6)', 
-              borderRadius: '16px', 
-              padding: '32px',
-              border: '1px solid rgba(99, 102, 241, 0.3)'
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-around', alignItems: 'flex-start', gap: '40px', flexWrap: 'wrap' }}>
-                {/* Cart Items */}
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
-                  <div style={{ 
-                    fontSize: '12px', 
-                    fontWeight: '800', 
-                    color: '#6366f1', 
-                    textTransform: 'uppercase',
-                    letterSpacing: '1.5px'
-                  }}>
-                    YOUR CART
-                  </div>
-                  {cart.map((item, idx) => (
-                    <div key={item.id} style={{ 
-                      background: 'linear-gradient(135deg, #1e293b 0%, #334155 100%)', 
-                      padding: '16px 24px', 
-                      borderRadius: '14px',
-                      border: '2px solid #6366f1',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '12px',
-                      minWidth: '200px',
-                      animation: `fadeIn 0.4s ease-out ${idx * 0.1}s forwards`,
-                      opacity: 0
-                    }}>
-                      <span style={{ fontSize: '32px' }}>{item.img}</span>
-                      <div>
-                        <div style={{ fontSize: '15px', fontWeight: '700', color: 'white' }}>{item.name}</div>
-                        <div style={{ fontSize: '13px', color: '#94a3b8', fontWeight: '600' }}>Qty: {item.quantity}</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                {/* AI Recommendations */}
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
-                  <div style={{ 
-                    fontSize: '12px', 
-                    fontWeight: '800', 
-                    color: '#8b5cf6', 
-                    textTransform: 'uppercase',
-                    letterSpacing: '1.5px'
-                  }}>
-                    AI SUGGESTS
-                  </div>
-                  {recommendations.slice(0, 4).map((rec, idx) => (
-                    <div key={rec.id} style={{ position: 'relative' }}>
-                      <div style={{
-                        position: 'absolute',
-                        left: '-50px',
-                        top: '50%',
-                        transform: 'translateY(-50%)',
-                        width: '40px',
-                        height: '2px',
-                        background: `linear-gradient(to right, #6366f1, #8b5cf6)`,
-                        opacity: 0.6
-                      }} />
-                      <div style={{ 
-                        background: 'linear-gradient(135deg, #1e293b 0%, #334155 100%)', 
-                        padding: '16px 24px', 
-                        borderRadius: '14px',
-                        border: '2px solid #8b5cf6',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '12px',
-                        minWidth: '220px',
-                        animation: `fadeIn 0.4s ease-out ${0.4 + idx * 0.1}s forwards`,
-                        opacity: 0
-                      }}>
-                        <span style={{ fontSize: '32px' }}>{rec.img}</span>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: '15px', fontWeight: '700', color: 'white', marginBottom: '4px' }}>
-                            {rec.name}
-                          </div>
-                          <div style={{ fontSize: '12px', color: '#8b5cf6', fontWeight: '700' }}>
-                            {rec.ai_match}% AI Match
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* AI Recommendations */}
-        {recommendations.length > 0 && (
-          <div style={{ 
-            background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)', 
-            borderRadius: '20px', 
-            padding: '32px', 
-            marginBottom: '24px',
-            boxShadow: '0 20px 60px rgba(99, 102, 241, 0.4)',
-            position: 'relative',
-            overflow: 'hidden'
-          }}>
-            <div style={{ 
-              position: 'absolute', 
-              top: '-100px', 
-              right: '-100px', 
-              width: '300px', 
-              height: '300px', 
-              background: 'rgba(255,255,255,0.1)', 
-              borderRadius: '50%',
-              animation: 'pulse 4s ease-in-out infinite'
-            }} />
-            <div style={{ position: 'relative', zIndex: 1 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '28px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  <Brain size={32} color="white" />
-                  <div>
-                    <h2 style={{ margin: 0, color: 'white', fontSize: '28px', fontWeight: '900', letterSpacing: '-0.5px' }}>
-                      AI Recommendations
-                    </h2>
-                    <p style={{ margin: '4px 0 0 0', color: 'rgba(255,255,255,0.8)', fontSize: '14px' }}>
-                      Based on {aiInsights?.intent || 'your selection'}
-                    </p>
-                  </div>
-                </div>
-                {loading && <div className="loading" style={{ width: '100px', height: '4px', borderRadius: '2px' }} />}
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '20px' }}>
-                {recommendations.map((rec, idx) => (
-                  <div key={rec.id} style={{ 
-                    background: 'rgba(255,255,255,0.95)', 
-                    borderRadius: '18px', 
-                    padding: '24px',
-                    animation: `fadeIn 0.5s ease-out ${idx * 0.1}s forwards`,
-                    opacity: 0
-                  }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
-                      <span style={{ fontSize: '64px' }}>{rec.img}</span>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', alignItems: 'flex-end' }}>
-                        <div style={{ 
-                          background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)', 
-                          color: 'white', 
-                          padding: '6px 14px', 
-                          borderRadius: '10px', 
-                          fontSize: '14px', 
-                          fontWeight: '900',
-                          boxShadow: '0 4px 12px rgba(99, 102, 241, 0.4)'
-                        }}>
-                          {rec.ai_match}%
-                        </div>
-                        <div style={{ 
-                          background: '#10b981', 
-                          color: 'white', 
-                          padding: '5px 12px', 
-                          borderRadius: '8px', 
-                          fontSize: '12px', 
-                          fontWeight: '700'
-                        }}>
-                          {formatNumber(rec.users_bought)} users
-                        </div>
-                      </div>
-                    </div>
-                    <h4 style={{ 
-                      margin: '0 0 12px 0', 
-                      fontSize: '18px', 
-                      fontWeight: '800', 
-                      color: '#0f172a',
-                      minHeight: '44px',
-                      lineHeight: '1.3'
-                    }}>
-                      {rec.name}
-                    </h4>
-                    <div style={{ 
-                      fontSize: '26px', 
-                      fontWeight: '900', 
-                      color: '#6366f1',
-                      marginBottom: '16px'
-                    }}>
-                      ₹{rec.price}
-                    </div>
-                    <div style={{ 
-                      background: '#f1f5f9', 
-                      padding: '12px', 
-                      borderRadius: '10px', 
-                      marginBottom: '16px',
-                      fontSize: '13px'
-                    }}>
-                      <div style={{ fontWeight: '700', color: '#6366f1', marginBottom: '8px', fontSize: '12px' }}>
-                        WHY RECOMMENDED:
-                      </div>
-                      {rec.reasoning && (
-                        <div style={{ color: '#475569', lineHeight: '1.5', marginBottom: '8px' }}>
-                          {rec.reasoning}
-                        </div>
-                      )}
-                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '8px' }}>
-                        {rec.sources?.slice(0, 2).map((source, i) => (
-                          <div key={i} style={{ 
-                            background: 'white', 
-                            padding: '4px 10px', 
-                            borderRadius: '6px',
-                            fontSize: '11px',
-                            fontWeight: '600',
-                            color: '#64748b',
-                            border: '1px solid #e2e8f0'
-                          }}>
-                            {source.item_name}: {source.match}%
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => addToCart(rec)}
-                      className="btn-hover"
-                      style={{ 
-                        width: '100%', 
-                        background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)', 
-                        color: 'white', 
-                        border: 'none', 
-                        padding: '14px', 
-                        borderRadius: '12px', 
-                        cursor: 'pointer', 
-                        fontWeight: '800', 
-                        fontSize: '15px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: '8px'
-                      }}
-                    >
-                      <Plus size={18} />
-                      Add to Cart
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Filters */}
-        <div className="glass" style={{ 
-          borderRadius: '20px', 
-          padding: '20px 32px', 
-          marginBottom: '24px',
-          display: 'flex',
-          gap: '16px',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <Filter size={20} color="#6366f1" />
-            <span style={{ color: 'white', fontWeight: '700', fontSize: '15px' }}>Filters:</span>
-          </div>
-          <select 
-            value={selectedCategory} 
-            onChange={(e) => setSelectedCategory(e.target.value)}
-            style={{ 
-              background: 'rgba(255,255,255,0.1)', 
-              color: 'white', 
-              border: '1px solid rgba(255,255,255,0.2)', 
-              padding: '10px 16px', 
-              borderRadius: '10px', 
-              cursor: 'pointer',
-              fontWeight: '600',
-              fontSize: '14px'
-            }}
-          >
-            <option value="all" style={{ background: '#1e293b' }}>All Categories</option>
-            {categories.map(cat => (
-              <option key={cat} value={cat} style={{ background: '#1e293b' }}>{cat}</option>
-            ))}
-          </select>
-          <select 
-            value={sortBy} 
-            onChange={(e) => setSortBy(e.target.value)}
-            style={{ 
-              background: 'rgba(255,255,255,0.1)', 
-              color: 'white', 
-              border: '1px solid rgba(255,255,255,0.2)', 
-              padding: '10px 16px', 
-              borderRadius: '10px', 
-              cursor: 'pointer',
-              fontWeight: '600',
-              fontSize: '14px'
-            }}
-          >
-            <option value="popular" style={{ background: '#1e293b' }}>Most Popular</option>
-            <option value="price_low" style={{ background: '#1e293b' }}>Price: Low to High</option>
-            <option value="price_high" style={{ background: '#1e293b' }}>Price: High to Low</option>
-          </select>
-        </div>
-
-        {/* Products Grid */}
-        <div className="glass" style={{ 
-          borderRadius: '20px', 
-          padding: '32px',
-          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)'
-        }}>
-          <h2 style={{ 
-            margin: '0 0 28px 0', 
-            fontSize: '26px', 
-            color: 'white', 
-            fontWeight: '900',
-            letterSpacing: '-0.5px'
-          }}>
-            All Products
-          </h2>
-          <div style={{ 
-            display: 'grid', 
-            gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', 
-            gap: '24px' 
-          }}>
-            {getFilteredProducts().map((product, idx) => {
-              const inCart = cart.find(item => item.id === product.id);
-              return (
-                <div 
-                  key={product.id} 
-                  className="card-hover"
-                  style={{ 
-                    background: 'linear-gradient(135deg, #1e293b 0%, #334155 100%)', 
-                    borderRadius: '18px', 
-                    padding: '24px', 
-                    border: '1px solid rgba(99, 102, 241, 0.2)',
-                    animation: `fadeIn 0.4s ease-out ${idx * 0.03}s forwards`,
-                    opacity: 0
-                  }}
-                >
-                  <div style={{ fontSize: '72px', textAlign: 'center', marginBottom: '16px' }}>
-                    {product.img}
-                  </div>
-                  <h3 style={{ 
-                    margin: '0 0 8px 0', 
-                    fontSize: '17px', 
-                    fontWeight: '800', 
-                    color: 'white', 
-                    minHeight: '48px',
-                    lineHeight: '1.4'
-                  }}>
-                    {product.name}
-                  </h3>
-                  <div style={{ 
-                    fontSize: '11px', 
-                    color: '#94a3b8', 
-                    marginBottom: '12px', 
-                    textTransform: 'uppercase', 
-                    fontWeight: '700',
-                    letterSpacing: '0.5px'
-                  }}>
-                    {product.category}
-                  </div>
-                  <div style={{ 
-                    fontSize: '28px', 
-                    fontWeight: '900', 
-                    color: '#6366f1',
-                    marginBottom: '16px'
-                  }}>
-                    ₹{product.price}
-                  </div>
-                  {inCart ? (
-                    <div style={{ 
-                      display: 'flex', 
-                      alignItems: 'center', 
-                      justifyContent: 'space-between', 
-                      background: 'rgba(99, 102, 241, 0.1)', 
-                      borderRadius: '12px', 
-                      padding: '10px',
-                      border: '2px solid #6366f1'
-                    }}>
-                      <button 
-                        onClick={() => removeFromCart(product.id)} 
-                        className="btn-hover"
-                        style={{ 
-                          background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)', 
-                          color: 'white', 
-                          border: 'none', 
-                          width: '38px', 
-                          height: '38px', 
-                          borderRadius: '10px', 
-                          cursor: 'pointer', 
-                          display: 'flex', 
-                          alignItems: 'center', 
-                          justifyContent: 'center',
-                          fontWeight: '700'
-                        }}
-                      >
-                        <Minus size={18} />
-                      </button>
-                      <span style={{ fontWeight: '900', fontSize: '18px', color: 'white' }}>
-                        {inCart.quantity}
-                      </span>
-                      <button 
-                        onClick={() => addToCart(product)} 
-                        className="btn-hover"
-                        style={{ 
-                          background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', 
-                          color: 'white', 
-                          border: 'none', 
-                          width: '38px', 
-                          height: '38px', 
-                          borderRadius: '10px', 
-                          cursor: 'pointer', 
-                          display: 'flex', 
-                          alignItems: 'center', 
-                          justifyContent: 'center',
-                          fontWeight: '700'
-                        }}
-                      >
-                        <Plus size={18} />
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      onClick={() => addToCart(product)}
-                      className="btn-hover"
-                      style={{ 
-                        width: '100%', 
-                        background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)', 
-                        color: 'white', 
-                        border: 'none', 
-                        padding: '14px', 
-                        borderRadius: '12px', 
-                        cursor: 'pointer', 
-                        fontWeight: '800', 
-                        fontSize: '15px'
-                      }}
-                    >
-                      Add to Cart
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Floating Cart Panel */}
-        {cart.length > 0 && (
-          <div className="glass" style={{ 
-            position: 'fixed', 
-            bottom: '24px', 
-            right: '24px', 
-            borderRadius: '20px', 
-            padding: '28px', 
-            boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5)', 
-            width: '420px', 
-            maxHeight: '600px', 
-            overflow: 'auto',
-            animation: 'slideUp 0.5s ease-out',
-            border: '1px solid rgba(99, 102, 241, 0.3)',
-            zIndex: 1000
-          }}>
-            <div style={{ 
-              display: 'flex', 
-              alignItems: 'center', 
-              justifyContent: 'space-between',
-              marginBottom: '24px' 
-            }}>
-              <h3 style={{ 
-                margin: 0, 
-                fontSize: '22px', 
-                fontWeight: '900', 
-                color: 'white',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '10px'
-              }}>
-                <ShoppingCart size={26} color="#6366f1" />
-                Your Cart
-              </h3>
-              <div style={{ 
-                background: 'rgba(99, 102, 241, 0.2)', 
-                color: '#6366f1', 
-                padding: '6px 14px', 
-                borderRadius: '10px',
-                fontSize: '14px',
-                fontWeight: '800'
-              }}>
-                {cart.length} items
-              </div>
-            </div>
-            
-            {cart.map((item, idx) => {
-              const matchData = recommendations.find(r => r.id === item.id);
-              return (
-                <div 
-                  key={item.id} 
-                  style={{ 
-                    background: 'linear-gradient(135deg, #1e293b 0%, #334155 100%)', 
-                    marginBottom: '14px', 
-                    padding: '16px', 
-                    borderRadius: '14px',
-                    border: '1px solid rgba(99, 102, 241, 0.3)',
-                    animation: `fadeIn 0.3s ease-out ${idx * 0.1}s forwards`,
-                    opacity: 0
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '14px' }}>
-                    <span style={{ fontSize: '42px' }}>{item.img}</span>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ 
-                        display: 'flex', 
-                        justifyContent: 'space-between', 
-                        alignItems: 'flex-start',
-                        marginBottom: '8px'
-                      }}>
-                        <div>
-                          <div style={{ fontWeight: '800', fontSize: '16px', color: 'white', marginBottom: '4px' }}>
-                            {item.name}
-                          </div>
-                          <div style={{ 
-                            fontSize: '15px', 
-                            fontWeight: '800',
-                            color: '#6366f1'
-                          }}>
-                            ₹{item.price} × {item.quantity}
-                          </div>
-                        </div>
-                        <button 
-                          onClick={() => deleteFromCart(item.id)} 
-                          className="btn-hover"
-                          style={{ 
-                            background: 'rgba(239, 68, 68, 0.2)', 
-                            color: '#ef4444', 
-                            border: 'none', 
-                            width: '32px', 
-                            height: '32px', 
-                            borderRadius: '8px', 
-                            cursor: 'pointer', 
-                            display: 'flex', 
-                            alignItems: 'center', 
-                            justifyContent: 'center',
-                            fontWeight: '700'
-                          }}
-                        >
-                          <X size={18} />
+                return (
+                  <React.Fragment key={product.id}>
+                    {/* Product Card */}
+                    <div className="product-card">
+                      <div className="product-image-wrapper">
+                        <span className="product-emoji">{product.img}</span>
+                        <button className="wishlist-btn">
+                          <Heart size={20} />
                         </button>
                       </div>
-                      
-                      {/* Show co-purchase stats */}
-                      {aiInsights && (
-                        <div style={{ 
-                          background: 'rgba(99, 102, 241, 0.1)', 
-                          padding: '10px', 
-                          borderRadius: '8px',
-                          marginTop: '10px'
-                        }}>
-                          <div style={{ 
-                            display: 'grid', 
-                            gridTemplateColumns: '1fr 1fr', 
-                            gap: '8px',
-                            fontSize: '12px'
-                          }}>
-                            <div>
-                              <div style={{ color: '#94a3b8', fontWeight: '600', marginBottom: '2px' }}>
-                                AI Match
-                              </div>
-                              <div style={{ color: '#6366f1', fontWeight: '900', fontSize: '16px' }}>
-                                {Math.floor(Math.random() * 20) + 75}%
-                              </div>
-                            </div>
-                            <div>
-                              <div style={{ color: '#94a3b8', fontWeight: '600', marginBottom: '2px' }}>
-                                Co-purchased
-                              </div>
-                              <div style={{ color: '#10b981', fontWeight: '900', fontSize: '16px' }}>
-                                {formatNumber(Math.floor(Math.random() * 5000) + 8000)}
-                              </div>
-                            </div>
-                          </div>
+                      <div className="product-details">
+                        <span className="product-category">{product.category}</span>
+                        <h3 className="product-name">{product.name}</h3>
+                        <div className="product-price-row">
+                          <span className="product-price">₹{product.price}</span>
+                          <span className="product-unit">/ unit</span>
                         </div>
-                      )}
+                        
+                        {quantity > 0 ? (
+                          <div className="quantity-controls">
+                            <button onClick={() => removeFromCart(product.id)}>−</button>
+                            <span>{quantity}</span>
+                            <button onClick={() => addToCart(product)}>+</button>
+                          </div>
+                        ) : (
+                          <button className="add-to-cart-btn" onClick={() => addToCart(product)}>
+                            <ShoppingCart size={16} />
+                            Add to Cart
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* People Also Bought Row - Appears directly below added item */}
+                    {inCart && recommendations.length > 0 && (
+                      <div className="inline-recommendations">
+                        <div className="inline-rec-header">
+                          <Sparkles size={18} className="sparkle-icon" />
+                          <span className="inline-rec-title">People also bought with {product.name}</span>
+                        </div>
+                        <div className="inline-rec-grid">
+                          {recommendations.map(rec => {
+                            const recQuantity = getCartItemQuantity(rec.id);
+                            return (
+                              <div key={rec.id} className="inline-rec-card">
+                                <div className="rec-badge">
+                                  {Math.round(rec.confidence)}% match
+                                </div>
+                                <div className="rec-image">{rec.img}</div>
+                                <div className="rec-info">
+                                  <div className="rec-name">{rec.name}</div>
+                                  <div className="rec-stats">
+                                    <span><Users size={12} /> {rec.users_bought}</span>
+                                    <span><TrendingUp size={12} /> {rec.lift.toFixed(1)}x</span>
+                                  </div>
+                                  <div className="rec-price">₹{rec.price}</div>
+                                  
+                                  {recQuantity > 0 ? (
+                                    <div className="quantity-controls mini">
+                                      <button onClick={() => removeFromCart(rec.id)}>−</button>
+                                      <span>{recQuantity}</span>
+                                      <button onClick={() => addToCart(rec)}>+</button>
+                                    </div>
+                                  ) : (
+                                    <button className="add-btn mini" onClick={() => addToCart(rec)}>
+                                      Add
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Loading State */}
+                    {inCart && loading && (
+                      <div className="inline-recommendations loading">
+                        <div className="loading-text">
+                          <Sparkles size={18} className="sparkle-icon spinning" />
+                          <span>Finding recommendations...</span>
+                        </div>
+                      </div>
+                    )}
+                  </React.Fragment>
+                );
+              })}
+            </div>
+          </section>
+
+          {/* Cart Summary */}
+          {cart.length > 0 && (
+            <div className="cart-summary-sticky">
+              <div className="cart-summary-content">
+                <div className="cart-info">
+                  <span className="cart-count">{cart.length} items</span>
+                  <span className="cart-total">₹{getCartTotal()}</span>
+                </div>
+                <button className="checkout-btn">
+                  Proceed to Checkout
+                  <ChevronRight size={20} />
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </main>
+    </div>
+  );
+};
+
+// AI Insights Page Component
+const AIInsightsPage = ({ aiTree, cart, onBack }) => {
+  if (!aiTree || !aiTree.cart_items) {
+    return (
+      <div className="ai-insights-page">
+        <header className="insights-header">
+          <button onClick={onBack} className="back-btn">
+            ← Back to Shopping
+          </button>
+          <h1>AI Insights</h1>
+        </header>
+        <div className="no-data">
+          <Brain size={64} />
+          <p>No insights available. Add items to cart to see AI recommendations!</p>
+        </div>
+      </div>
+    );
+  }
+
+  const decisionFlow = aiTree.decision_flow || {};
+  const stats = aiTree.statistics || {};
+
+  return (
+    <div className="ai-insights-page">
+      {/* Header */}
+      <header className="insights-header">
+        <button onClick={onBack} className="back-btn">
+          ← Back to Shopping
+        </button>
+        <h1>🧠 AI Recommendation Engine</h1>
+      </header>
+
+      <div className="insights-container">
+        
+        {/* Statistics Overview */}
+        <div className="overview-cards">
+          <div className="overview-card">
+            <Package size={32} className="card-icon blue" />
+            <div>
+              <div className="card-value">{aiTree.cart_items.length}</div>
+              <div className="card-label">Items Analyzed</div>
+            </div>
+          </div>
+          <div className="overview-card">
+            <TrendingUp size={32} className="card-icon green" />
+            <div>
+              <div className="card-value">{aiTree.total_recommendations}</div>
+              <div className="card-label">Recommendations</div>
+            </div>
+          </div>
+          <div className="overview-card">
+            <Users size={32} className="card-icon purple" />
+            <div>
+              <div className="card-value">{stats.total_customers_analyzed || 0}</div>
+              <div className="card-label">Customers</div>
+            </div>
+          </div>
+          <div className="overview-card">
+            <BarChart3 size={32} className="card-icon orange" />
+            <div>
+              <div className="card-value">{(stats.avg_confidence || 0).toFixed(0)}%</div>
+              <div className="card-label">Avg Confidence</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Decision Flow Tree */}
+        <div className="insight-card">
+          <h2>🌳 How We Recommend Products</h2>
+          <p className="card-description">
+            Our AI follows a 4-step process to find the best product recommendations for you
+          </p>
+          
+          <div className="decision-flow-tree">
+            {/* Step 1: Cart Analysis */}
+            {decisionFlow.step1 && (
+              <div className="flow-step">
+                <div className="step-number">1</div>
+                <div className="flow-node cart-node">
+                  <div className="node-header">
+                    <ShoppingCart size={24} />
+                    <h3>{decisionFlow.step1.title}</h3>
+                  </div>
+                  <p className="node-description">{decisionFlow.step1.description}</p>
+                  <div className="node-items">
+                    {decisionFlow.step1.items.map((item, idx) => (
+                      <span key={idx} className="item-badge">{item}</span>
+                    ))}
+                  </div>
+                </div>
+                <div className="flow-arrow">↓</div>
+              </div>
+            )}
+
+            {/* Step 2: Pattern Finding */}
+            {decisionFlow.step2 && (
+              <div className="flow-step">
+                <div className="step-number">2</div>
+                <div className="flow-node pattern-node">
+                  <div className="node-header">
+                    <Brain size={24} />
+                    <h3>{decisionFlow.step2.title}</h3>
+                  </div>
+                  <p className="node-description">{decisionFlow.step2.description}</p>
+                  <div className="pattern-stats">
+                    <div className="stat-box">
+                      <div className="stat-value">{decisionFlow.step2.rules_found}</div>
+                      <div className="stat-label">Association Rules Found</div>
                     </div>
                   </div>
                 </div>
-              );
-            })}
-            
-            <div style={{ 
-              borderTop: '2px solid rgba(99, 102, 241, 0.3)', 
-              paddingTop: '20px', 
-              marginTop: '20px' 
-            }}>
-              <div style={{ 
-                display: 'flex', 
-                justifyContent: 'space-between', 
-                fontSize: '22px', 
-                fontWeight: '900', 
-                color: 'white',
-                marginBottom: '18px'
-              }}>
-                <span>Total:</span>
-                <span style={{ color: '#6366f1' }}>
-                  ₹{getCartTotal()}
-                </span>
+                <div className="flow-arrow">↓</div>
               </div>
-              <button 
-                className="btn-hover"
-                style={{ 
-                  width: '100%', 
-                  background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', 
-                  color: 'white', 
-                  border: 'none', 
-                  padding: '18px', 
-                  borderRadius: '14px', 
-                  cursor: 'pointer', 
-                  fontWeight: '900', 
-                  fontSize: '17px',
-                  boxShadow: '0 8px 20px rgba(16, 185, 129, 0.4)',
-                  letterSpacing: '0.5px'
-                }}
-              >
-                Proceed to Checkout
-              </button>
+            )}
+
+            {/* Step 3: Confidence Filtering */}
+            {decisionFlow.step3 && (
+              <div className="flow-step">
+                <div className="step-number">3</div>
+                <div className="flow-node filter-node">
+                  <div className="node-header">
+                    <BarChart3 size={24} />
+                    <h3>{decisionFlow.step3.title}</h3>
+                  </div>
+                  <p className="node-description">{decisionFlow.step3.description}</p>
+                  
+                  <div className="confidence-branches">
+                    {/* High Confidence */}
+                    {decisionFlow.step3.categories.high.count > 0 && (
+                      <div className="confidence-branch high">
+                        <div className="branch-header">
+                          <span className="confidence-badge high">High Confidence</span>
+                          <span className="confidence-range">{decisionFlow.step3.categories.high.range}</span>
+                        </div>
+                        <div className="branch-count">{decisionFlow.step3.categories.high.count} products</div>
+                        <div className="branch-items">
+                          {decisionFlow.step3.categories.high.items.map((item, idx) => (
+                            <div key={idx} className="recommendation-detail-mini">
+                              <div className="rec-mini-header">
+                                <span className="rec-mini-name">{item.product}</span>
+                                <span className="rec-mini-confidence">{Math.round(item.confidence)}%</span>
+                              </div>
+                              <div className="rec-mini-stats">
+                                <span><Users size={12} /> {item.users_bought} customers</span>
+                                <span><TrendingUp size={12} /> {item.lift.toFixed(1)}x more likely</span>
+                              </div>
+                              <div className="rec-mini-reason">{item.reason}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Medium & Low Confidence */}
+                    {decisionFlow.step3.categories.medium.count > 0 && (
+                      <div className="confidence-branch medium">
+                        <div className="branch-header">
+                          <span className="confidence-badge medium">Medium Confidence</span>
+                          <span className="confidence-range">{decisionFlow.step3.categories.medium.range}</span>
+                        </div>
+                        <div className="branch-count">{decisionFlow.step3.categories.medium.count} products</div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="flow-arrow">↓</div>
+              </div>
+            )}
+
+            {/* Step 4: Final Recommendations */}
+            {decisionFlow.step4 && (
+              <div className="flow-step">
+                <div className="step-number">4</div>
+                <div className="flow-node final-node">
+                  <div className="node-header">
+                    <Sparkles size={24} />
+                    <h3>{decisionFlow.step4.title}</h3>
+                  </div>
+                  <p className="node-description">{decisionFlow.step4.description}</p>
+                  
+                  <div className="final-recommendations">
+                    {decisionFlow.step4.top_picks.map((item, idx) => (
+                      <div key={idx} className="final-rec-card">
+                        <div className="final-rec-rank">#{idx + 1}</div>
+                        <div className="final-rec-content">
+                          <div className="final-rec-name">{item.product}</div>
+                          <div className="final-rec-stats">
+                            <div className="final-stat">
+                              <span className="stat-label">Confidence</span>
+                              <span className="stat-value">{Math.round(item.confidence)}%</span>
+                            </div>
+                            <div className="final-stat">
+                              <span className="stat-label">Customers</span>
+                              <span className="stat-value">{item.users_bought}</span>
+                            </div>
+                            <div className="final-stat">
+                              <span className="stat-label">Lift</span>
+                              <span className="stat-value">{item.lift.toFixed(2)}x</span>
+                            </div>
+                          </div>
+                          <div className="final-rec-reason">
+                            💡 {item.reason}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Algorithm Explanation */}
+        <div className="insight-card">
+          <h2>🔬 Machine Learning Algorithms</h2>
+          <div className="algorithms-grid">
+            <div className="algorithm-card">
+              <div className="algo-icon">🔗</div>
+              <h3>Apriori Algorithm</h3>
+              <p>Discovers frequently bought together patterns using association rule mining</p>
+              <div className="algo-metrics">
+                <span className="metric">Support: {(stats.avg_confidence / 100 || 0).toFixed(3)}</span>
+                <span className="metric">Confidence: {(stats.avg_confidence || 0).toFixed(1)}%</span>
+                <span className="metric">Lift: {(stats.avg_lift || 0).toFixed(2)}x</span>
+              </div>
+            </div>
+            <div className="algorithm-card">
+              <div className="algo-icon">📊</div>
+              <h3>Market Basket Analysis</h3>
+              <p>Analyzed {stats.total_customers_analyzed || 'multiple'} customer transactions to find purchase patterns</p>
+              <div className="algo-metrics">
+                <span className="metric">Real transaction data</span>
+              </div>
+            </div>
+            <div className="algorithm-card">
+              <div className="algo-icon">🎯</div>
+              <h3>Confidence Scoring</h3>
+              <p>Ranks recommendations by probability that customers will buy them together</p>
+              <div className="algo-metrics">
+                <span className="metric">Top confidence: {decisionFlow.step4?.top_picks?.[0] ? Math.round(decisionFlow.step4.top_picks[0].confidence) : 0}%</span>
+              </div>
             </div>
           </div>
-        )}
+        </div>
+
       </div>
     </div>
   );

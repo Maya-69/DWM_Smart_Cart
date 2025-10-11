@@ -1,184 +1,286 @@
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 import sqlite3
-import json
+from data_warehouse import DataWarehouse
+from ml_models import MLRecommendationEngine
+import os
 
 app = Flask(__name__)
 CORS(app)
 
-# Database initialization
-def init_db():
-    conn = sqlite3.connect('smartcart.db')
-    c = conn.cursor()
-    
-    # Products table
-    c.execute('''CREATE TABLE IF NOT EXISTS products
-                 (id INTEGER PRIMARY KEY,
-                  name TEXT NOT NULL,
-                  category TEXT NOT NULL,
-                  price INTEGER NOT NULL,
-                  img TEXT NOT NULL,
-                  total_purchases INTEGER DEFAULT 0)''')
-    
-    # Co-purchase table (tracks items bought together)
-    c.execute('''CREATE TABLE IF NOT EXISTS co_purchases
-                 (product_id INTEGER,
-                  recommended_product_id INTEGER,
-                  match_percentage INTEGER,
-                  users_bought INTEGER,
-                  FOREIGN KEY (product_id) REFERENCES products(id),
-                  FOREIGN KEY (recommended_product_id) REFERENCES products(id))''')
-    
-    # Insert sample data if empty
-    c.execute('SELECT COUNT(*) FROM products')
-    if c.fetchone()[0] == 0:
-        products = [
-            (1, 'Britannia Bread', 'bakery', 40, '🍞', 15000),
-            (2, 'Amul Butter', 'dairy', 58, '🧈', 12000),
-            (3, 'Amul Cheese', 'dairy', 125, '🧀', 8000),
-            (4, 'Milk 1L', 'dairy', 62, '🥛', 20000),
-            (5, 'Tea Powder', 'beverages', 180, '🍵', 10000),
-            (6, 'Parle-G Biscuits', 'snacks', 25, '🍪', 18000),
-            (7, 'Eggs (12 pcs)', 'dairy', 107, '🥚', 14000),
-            (8, 'Jam Bottle', 'spreads', 145, '🫙', 6000),
-            (9, 'Peanut Butter', 'spreads', 299, '🥜', 5000),
-            (10, 'Coffee Powder', 'beverages', 220, '☕', 9000),
-            (11, 'Sugar 1kg', 'grocery', 55, '🧂', 11000),
-            (12, 'Maggi Noodles', 'instant', 48, '🍜', 16000),
-        ]
-        c.executemany('INSERT INTO products VALUES (?,?,?,?,?,?)', products)
-        
-        co_purchases = [
-            # Bread recommendations
-            (1, 2, 85, 12750), (1, 3, 72, 10800), (1, 8, 65, 9750), (1, 9, 58, 8700),
-            # Butter recommendations
-            (2, 1, 85, 12750), (2, 3, 68, 8160), (2, 8, 55, 6600),
-            # Cheese recommendations
-            (3, 1, 72, 10800), (3, 2, 68, 8160),
-            # Milk recommendations
-            (4, 5, 88, 17600), (4, 10, 78, 15600), (4, 6, 70, 14000), (4, 11, 62, 12400),
-            # Tea recommendations
-            (5, 4, 88, 17600), (5, 6, 82, 14760), (5, 11, 75, 13500),
-            # Biscuits recommendations
-            (6, 5, 82, 14760), (6, 4, 70, 14000),
-            # Eggs recommendations
-            (7, 1, 65, 9750), (7, 2, 60, 9000),
-            # Jam recommendations
-            (8, 1, 65, 9750), (8, 2, 55, 6600),
-            # Peanut Butter recommendations
-            (9, 1, 58, 8700),
-            # Coffee recommendations
-            (10, 4, 78, 15600), (10, 11, 68, 12240),
-            # Sugar recommendations
-            (11, 5, 75, 13500), (11, 4, 62, 12400), (11, 10, 68, 12240),
-            # Maggi recommendations
-            (12, 7, 45, 6300),
-        ]
-        c.executemany('INSERT INTO co_purchases VALUES (?,?,?,?)', co_purchases)
-    
-    conn.commit()
-    conn.close()
+warehouse = DataWarehouse()
+ml_engine = MLRecommendationEngine()
 
-# API Routes
+# Train models on startup if not already trained
+def initialize_ml_models():
+    """Load or train ML models on server startup"""
+    print("=" * 60)
+    print("INITIALIZING ML MODELS")
+    print("=" * 60)
+    
+    # Check if we have trained models
+    if not ml_engine.association_rules or len(ml_engine.association_rules) == 0:
+        print("\n⚠️  No trained models found. Training now...")
+        
+        # Train Apriori (most important for recommendations)
+        print("  - Training Apriori algorithm...")
+        result = ml_engine.train_apriori(min_support=0.01, min_confidence=0.3)
+        
+        if result:
+            print(f"  ✓ Trained successfully! Generated {result['total_rules']} association rules")
+        else:
+            print("  ✗ Training failed - no transaction data available")
+            print("  → Run 'python initialize.py' to load data first")
+            return False
+        
+        # Train K-Means
+        print("  - Training K-Means clustering...")
+        kmeans_result = ml_engine.train_kmeans_clustering(n_clusters=3)
+        if kmeans_result:
+            print(f"  ✓ Created {len(kmeans_result)} customer segments")
+        
+        # Train Naive Bayes
+        print("  - Training Naive Bayes...")
+        nb_result = ml_engine.train_naive_bayes()
+        if nb_result:
+            print(f"  ✓ Accuracy: {nb_result['accuracy']:.2%}")
+    else:
+        print(f"\n✓ Models already loaded: {len(ml_engine.association_rules)} association rules available")
+    
+    print("=" * 60)
+    print("✓ ML ENGINE READY")
+    print("=" * 60)
+    return True
+
 @app.route('/api/products', methods=['GET'])
 def get_products():
+    """Get all products from database"""
     conn = sqlite3.connect('smartcart.db')
-    conn.row_factory = sqlite3.Row
     c = conn.cursor()
-    c.execute('SELECT * FROM products')
-    products = [dict(row) for row in c.fetchall()]
+    c.execute('SELECT id, name, category, price, img FROM products LIMIT 50')
+    products = [{'id': row[0], 'name': row[1], 'category': row[2], 
+                 'price': row[3], 'img': row[4]} for row in c.fetchall()]
     conn.close()
     return jsonify(products)
 
 @app.route('/api/recommendations', methods=['POST'])
 def get_recommendations():
-    cart_items = request.json.get('cart_items', [])
+    """
+    Get ML-based recommendations from trained model
+    
+    Request body:
+    {
+        "cart_items": [1, 2, 3]  // Product IDs
+    }
+    
+    Response:
+    [
+        {
+            "id": 4,
+            "name": "Product Name",
+            "price": 100,
+            "img": "emoji",
+            "category": "category",
+            "confidence": 85.5,
+            "support": 0.15,
+            "lift": 2.3,
+            "users_bought": 150,
+            "reason": "Often bought with Product A"
+        }
+    ]
+    """
+    data = request.json
+    cart_items = data.get('cart_items', [])
     
     if not cart_items:
         return jsonify([])
     
-    conn = sqlite3.connect('smartcart.db')
-    conn.row_factory = sqlite3.Row
-    c = conn.cursor()
+    # Check if models are trained
+    if not ml_engine.association_rules:
+        return jsonify({
+            'error': 'Models not trained',
+            'message': 'Please run initialize.py first or call /api/train-models'
+        }), 503
     
-    # Get co-purchase data for all cart items
+    # Get product names from IDs
+    conn = sqlite3.connect('smartcart.db')
+    c = conn.cursor()
     placeholders = ','.join('?' * len(cart_items))
-    query = f'''
-        SELECT 
-            cp.recommended_product_id,
-            cp.match_percentage,
-            cp.users_bought,
-            p.name,
-            p.category,
-            p.price,
-            p.img,
-            p.total_purchases
-        FROM co_purchases cp
-        JOIN products p ON cp.recommended_product_id = p.id
-        WHERE cp.product_id IN ({placeholders})
-        AND cp.recommended_product_id NOT IN ({placeholders})
-    '''
-    
-    c.execute(query, cart_items + cart_items)
-    recommendations = {}
-    
-    for row in c.fetchall():
-        rec_id = row['recommended_product_id']
-        if rec_id not in recommendations:
-            recommendations[rec_id] = {
-                'id': rec_id,
-                'name': row['name'],
-                'category': row['category'],
-                'price': row['price'],
-                'img': row['img'],
-                'total_purchases': row['total_purchases'],
-                'total_match': 0,
-                'max_users': 0,
-                'sources': []
-            }
-        
-        recommendations[rec_id]['total_match'] += row['match_percentage']
-        recommendations[rec_id]['max_users'] = max(recommendations[rec_id]['max_users'], row['users_bought'])
-        recommendations[rec_id]['sources'].append({
-            'match': row['match_percentage'],
-            'users': row['users_bought']
-        })
-    
-    # Calculate average match and sort
-    result = []
-    for rec in recommendations.values():
-        rec['aiMatch'] = round(rec['total_match'] / len(cart_items))
-        rec['usersBought'] = rec['max_users']
-        result.append(rec)
-    
-    result.sort(key=lambda x: x['aiMatch'], reverse=True)
+    c.execute(f'SELECT name FROM products WHERE id IN ({placeholders})', cart_items)
+    cart_names = [row[0] for row in c.fetchall()]
     conn.close()
     
-    return jsonify(result[:4])
+    if not cart_names:
+        return jsonify([])
+    
+    # Get recommendations from association rules (trained model)
+    recommendations = ml_engine.get_recommendations(cart_names, top_n=8)
+    
+    # Map back to product IDs with full details
+    if recommendations:
+        conn = sqlite3.connect('smartcart.db')
+        c = conn.cursor()
+        for rec in recommendations:
+            c.execute('SELECT id, price, img, category FROM products WHERE name = ?', (rec['product'],))
+            result = c.fetchone()
+            if result:
+                rec['id'] = result[0]
+                rec['price'] = result[1]
+                rec['img'] = result[2]
+                rec['category'] = result[3]
+                rec['name'] = rec['product']
+        conn.close()
+    
+    return jsonify(recommendations)
 
-@app.route('/api/co-purchases/<int:product_id>', methods=['GET'])
-def get_co_purchases(product_id):
+@app.route('/api/ai-insights', methods=['POST'])
+def get_ai_insights():
+    """
+    Get detailed decision tree explanation with purchase statistics
+    
+    Request body:
+    {
+        "cart_items": [1, 2, 3]  // Product IDs
+    }
+    
+    Response:
+    {
+        "cart_items": ["product1", "product2"],
+        "total_recommendations": 10,
+        "decision_flow": {
+            "step1": {...},
+            "step2": {...},
+            "step3": {...},
+            "step4": {...}
+        },
+        "statistics": {...}
+    }
+    """
+    data = request.json
+    cart_items = data.get('cart_items', [])
+    
+    if not cart_items:
+        return jsonify({'error': 'No cart items'})
+    
+    # Check if models are trained
+    if not ml_engine.association_rules:
+        return jsonify({
+            'error': 'Models not trained',
+            'message': 'Please run initialize.py first'
+        }), 503
+    
+    # Get product names
     conn = sqlite3.connect('smartcart.db')
-    conn.row_factory = sqlite3.Row
     c = conn.cursor()
-    
-    c.execute('''
-        SELECT 
-            cp.*,
-            p.name,
-            p.img
-        FROM co_purchases cp
-        JOIN products p ON cp.recommended_product_id = p.id
-        WHERE cp.product_id = ?
-        ORDER BY cp.match_percentage DESC
-    ''', (product_id,))
-    
-    co_purchases = [dict(row) for row in c.fetchall()]
+    placeholders = ','.join('?' * len(cart_items))
+    c.execute(f'SELECT name FROM products WHERE id IN ({placeholders})', cart_items)
+    cart_names = [row[0] for row in c.fetchall()]
     conn.close()
-    return jsonify(co_purchases)
+    
+    if not cart_names:
+        return jsonify({'error': 'No valid products found'})
+    
+    # Generate detailed decision tree
+    tree = ml_engine.generate_detailed_decision_tree(cart_names)
+    
+    return jsonify(tree)
+
+@app.route('/api/train-models', methods=['POST'])
+def train_models():
+    """
+    Manually trigger model training
+    
+    Response:
+    {
+        "kmeans": [...],
+        "naive_bayes": {...},
+        "association_rules": {
+            "total_rules": 100,
+            "sample_rules": [...]
+        }
+    }
+    """
+    results = {}
+    
+    # Train K-Means
+    print("Training K-Means...")
+    kmeans_result = ml_engine.train_kmeans_clustering(n_clusters=3)
+    results['kmeans'] = kmeans_result
+    
+    # Train Naive Bayes
+    print("Training Naive Bayes...")
+    nb_result = ml_engine.train_naive_bayes()
+    results['naive_bayes'] = nb_result
+    
+    # Train Association Rules (Apriori)
+    print("Training Apriori...")
+    rules_result = ml_engine.train_apriori(min_support=0.01, min_confidence=0.3)
+    results['association_rules'] = rules_result
+    
+    return jsonify(results)
+
+@app.route('/api/model-status', methods=['GET'])
+def model_status():
+    """
+    Check if models are trained and ready
+    
+    Response:
+    {
+        "trained": true,
+        "total_rules": 150,
+        "kmeans_ready": true,
+        "naive_bayes_ready": true
+    }
+    """
+    return jsonify({
+        'trained': len(ml_engine.association_rules) > 0,
+        'total_rules': len(ml_engine.association_rules),
+        'kmeans_ready': ml_engine.kmeans_model is not None,
+        'naive_bayes_ready': ml_engine.naive_bayes_model is not None
+    })
+
+@app.route('/api/olap/rollup', methods=['GET'])
+def olap_rollup():
+    """OLAP Roll-up operation"""
+    dimension = request.args.get('dimension', 'category')
+    result = warehouse.olap_rollup(dimension)
+    return jsonify(result)
+
+@app.route('/api/olap/drilldown/<category>', methods=['GET'])
+def olap_drilldown(category):
+    """OLAP Drill-down operation"""
+    result = warehouse.olap_drilldown(category)
+    return jsonify(result)
+
+@app.route('/api/init-data', methods=['POST'])
+def initialize_data():
+    """Initialize warehouse with sample data"""
+    try:
+        warehouse.load_from_csv('Groceries_dataset.csv')
+        return jsonify({'status': 'success', 'message': 'Data warehouse initialized'})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/health', methods=['GET'])
+def health_check():
+    """Health check endpoint"""
+    return jsonify({
+        'status': 'healthy',
+        'models_trained': len(ml_engine.association_rules) > 0
+    })
 
 if __name__ == '__main__':
-    init_db()
-    print("✅ Database initialized!")
-    print("🚀 Server running on http://localhost:5000")
-    app.run(debug=True, port=5000)  
+    # Initialize ML models on startup
+    initialize_ml_models()
+    
+    # Start Flask server
+    print("\n🚀 Starting Flask server on http://localhost:5000")
+    print("   API endpoints:")
+    print("   - GET  /api/products")
+    print("   - POST /api/recommendations")
+    print("   - POST /api/ai-insights")
+    print("   - POST /api/train-models")
+    print("   - GET  /api/model-status")
+    print("\n")
+    
+    app.run(debug=True, port=5000)
