@@ -61,6 +61,7 @@ body {
   font-weight: 700;
   background: linear-gradient(135deg, var(--primary), #06b6d4);
   -webkit-background-clip: text;
+  background-clip: text;
   -webkit-text-fill-color: transparent;
   white-space: nowrap;
   cursor: pointer;
@@ -279,6 +280,7 @@ body {
   min-height: 2.8rem;
   display: -webkit-box;
   -webkit-line-clamp: 2;
+  line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
@@ -491,6 +493,7 @@ body {
   min-height: 2.8rem;
   display: -webkit-box;
   -webkit-line-clamp: 2;
+  line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
