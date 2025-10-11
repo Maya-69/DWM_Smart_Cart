@@ -1,13 +1,13 @@
-### Smart Cart
+# Smart Cart
 
 ## 🚀 How to Run
 
-# Frontend
+### Frontend
 ```bash
 npm install
 npm start
 ```
-# Backend
+### Backend
 ```bash
 cd backend
 python server.py
