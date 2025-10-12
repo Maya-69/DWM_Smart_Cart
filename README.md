@@ -22,6 +22,12 @@ An intelligent e-commerce recommendation system that uses **Machine Learning** (
 - **Confidence**: Probability of rule being true
 - **Lift**: How much more likely items are bought together vs independently
 
+### What's Cooking? - Meal Intent Prediction
+- **Pattern Recognition**: Matches cart items against 10 predefined meal patterns
+- **Keyword Matching**: Identifies ingredient combinations (bread + butter + cheese = sandwich)
+- **Confidence Scoring**: Calculates match percentage for each meal type
+- **Multi-Prediction**: Returns top 3 predictions with confidence levels
+
 ---
 
 ## 📝 Dataset
