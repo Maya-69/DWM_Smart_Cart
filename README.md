@@ -52,21 +52,23 @@ An intelligent e-commerce recommendation system that uses **Machine Learning** (
 
 ## 📂 Project Structure
 
+<pre>
 smartcart/
 ├── src/
-│ ├── App.js # Main React component
-│ ├── App.css # Styling
-│ └── index.js # React entry point
+│   ├── App.js                 # Main React component
+│   ├── App.css                # Styling
+│   └── index.js               # React entry point
 ├── backend/
-│ ├── server.py # Flask API server
-│ ├── ml_models.py # ML algorithms (Apriori)
-│ ├── database.py # SQLite operations
-│ ├── data_warehouse.py # Data processing
-│ ├── load_dataset.py # Dataset loader
-│ └── initialize.py # Setup script
-├── Groceries_dataset.csv # Training data (38,000+ transactions)
-├── requirements.txt # Python dependencies
+│   ├── server.py              # Flask API server
+│   ├── ml_models.py           # ML algorithms (Apriori)
+│   ├── database.py            # SQLite operations
+│   ├── data_warehouse.py      # Data processing
+│   ├── load_dataset.py        # Dataset loader
+│   └── initialize.py          # Setup script
+├── Groceries_dataset.csv      # Training data (38,000+ transactions)
+├── requirements.txt           # Python dependencies
 └── README.md
+</pre>
 
 ---
 
