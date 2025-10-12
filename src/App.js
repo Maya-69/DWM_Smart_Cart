@@ -8,6 +8,7 @@ const App = () => {
   const [products, setProducts] = useState([]);
   const [cart, setCart] = useState([]);
   const [recommendationsMap, setRecommendationsMap] = useState({});
+  const [mealPrediction, setMealPrediction] = useState(null);   
   const [searchQuery, setSearchQuery] = useState('');
   const [showAIInsights, setShowAIInsights] = useState(false);
   const [aiTree, setAiTree] = useState(null);
@@ -54,17 +55,18 @@ const App = () => {
 
   const fetchAIInsights = async () => {
   try {
-    const cartIds = cart.map(item => item.id);  // BACK TO IDs
+    const cartIds = cart.map(item => item.id);
     
+    // Fetch AI insights
     const response = await fetch(`${API_URL}/ai-insights`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ cart_items: cartIds })  // Send IDs
+      body: JSON.stringify({ cart_items: cartIds })
     });
     const data = await response.json();
     setAiTree(data);
 
-    // Also fetch graph with names
+    // Fetch recommendation graph
     const cartNames = cart.map(item => item.name);
     const graphResponse = await fetch(`${API_URL}/recommendation-graph`, {
       method: 'POST',
@@ -74,11 +76,23 @@ const App = () => {
     const graphData = await graphResponse.json();
     setRecommendationGraph(graphData);
 
+    // Fetch meal prediction
+    const predictionResponse = await fetch(`${API_URL}/predict-intent`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cart_items: cart })  // Send full cart objects
+    });
+    const predictionData = await predictionResponse.json();
+    if (predictionData.success) {
+      setMealPrediction(predictionData.prediction);
+    }
+
     setShowAIInsights(true);
   } catch (error) {
     console.error('Error:', error);
   }
 };
+
 
 
   const addToCart = (product) => {
@@ -123,8 +137,15 @@ const App = () => {
   );
 
   if (showAIInsights) {
-    return <AIInsightsPage aiTree={aiTree} cart={cart} recommendationGraph={recommendationGraph} onBack={() => setShowAIInsights(false)} />;
+    return <AIInsightsPage 
+      aiTree={aiTree} 
+      cart={cart} 
+      recommendationGraph={recommendationGraph} 
+      mealPrediction={mealPrediction}
+      onBack={() => setShowAIInsights(false)} 
+    />;
   }
+
 
   return (
     <div className="app">
@@ -280,6 +301,171 @@ const App = () => {
           )}
         </div>
       </main>
+    </div>
+  );
+};
+
+// Meal Intent Predictor Component - Clean & Beautiful
+const MealIntentPredictor = ({ prediction }) => {
+  if (!prediction) return null;
+
+  const { primary, alternatives } = prediction;
+
+  return (
+    <div style={{
+      background: 'white',
+      borderRadius: '20px',
+      padding: '2.5rem',
+      marginBottom: '2rem',
+      boxShadow: '0 10px 40px rgba(102, 126, 234, 0.3)',
+      border: '1px solid rgba(255,255,255,0.1)'
+    }}>
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: '1.5rem'
+      }}>
+        <span style={{ fontSize: '2rem', marginRight: '0.75rem' }}>🧠</span>
+        <h3 style={{
+          color: 'black',
+          fontSize: '1.75rem',
+          fontWeight: '700',
+          margin: 0,
+          textShadow: '0 2px 10px rgba(212, 169, 252, 0.2)'
+        }}>
+          What's Cooking?
+        </h3>
+      </div>
+
+      <p style={{
+        textAlign: 'center',
+        color: 'rgba(255,255,255,0.9)',
+        fontSize: '14px',
+        marginBottom: '2rem',
+        fontWeight: '400'
+      }}>
+        AI-powered prediction of your meal intentions
+      </p>
+
+      {/* Primary Prediction */}
+      <div style={{
+        background: 'white',
+        borderRadius: '16px',
+        padding: '2rem',
+        marginBottom: '1.5rem',
+        boxShadow: '0 8px 32px rgba(0,0,0,0.1)',
+        transition: 'transform 0.3s ease',
+        cursor: 'default'
+      }}>
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginBottom: '1rem'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+            <span style={{ fontSize: '3rem' }}>{primary.emoji}</span>
+            <div>
+              <h4 style={{
+                margin: 0,
+                fontSize: '1.5rem',
+                fontWeight: '700',
+                color: '#1f2937',
+                marginBottom: '0.25rem'
+              }}>
+                {primary.name}
+              </h4>
+              <p style={{
+                margin: 0,
+                fontSize: '0.9rem',
+                color: '#6b7280',
+                fontWeight: '500'
+              }}>
+                {primary.description}
+              </p>
+            </div>
+          </div>
+          <div style={{
+            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            color: 'white',
+            padding: '0.75rem 1.5rem',
+            borderRadius: '50px',
+            fontSize: '1.25rem',
+            fontWeight: '700',
+            boxShadow: '0 4px 15px rgba(102, 126, 234, 0.3)'
+          }}>
+            {primary.confidence}%
+          </div>
+        </div>
+
+        {/* Confidence Bar */}
+        <div style={{
+          width: '100%',
+          height: '8px',
+          background: '#e5e7eb',
+          borderRadius: '10px',
+          overflow: 'hidden'
+        }}>
+          <div style={{
+            width: `${primary.confidence}%`,
+            height: '100%',
+            background: 'linear-gradient(90deg, #667eea 0%, #764ba2 100%)',
+            transition: 'width 0.8s ease',
+            borderRadius: '10px'
+          }} />
+        </div>
+      </div>
+
+      {/* Alternative Predictions */}
+      {alternatives.length > 0 && (
+        <>
+          <p style={{
+            color: 'rgba(255,255,255,0.9)',
+            fontSize: '0.9rem',
+            fontWeight: '600',
+            marginBottom: '1rem',
+            textAlign: 'center'
+          }}>
+            Alternative Predictions
+          </p>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+            gap: '1rem'
+          }}>
+            {alternatives.map((alt, idx) => (
+              <div key={idx} style={{
+                background: 'rgba(255,255,255,0.95)',
+                borderRadius: '12px',
+                padding: '1.25rem',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                boxShadow: '0 4px 15px rgba(0,0,0,0.08)'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                  <span style={{ fontSize: '1.75rem' }}>{alt.emoji}</span>
+                  <span style={{
+                    fontSize: '0.95rem',
+                    fontWeight: '600',
+                    color: '#374151'
+                  }}>
+                    {alt.name}
+                  </span>
+                </div>
+                <span style={{
+                  fontSize: '0.9rem',
+                  fontWeight: '700',
+                  color: '#667eea'
+                }}>
+                  {alt.confidence}%
+                </span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 };
@@ -440,7 +626,7 @@ const RecommendationGraph = ({ graphData }) => {
 
 
 // AI Insights Page Component
-const AIInsightsPage = ({ aiTree, cart, recommendationGraph, onBack }) => {
+const AIInsightsPage = ({ aiTree, cart, recommendationGraph, mealPrediction, onBack }) => {
   if (!aiTree || !aiTree.cart_items) {
     return (
       <div className="ai-insights-page">
@@ -507,6 +693,9 @@ const AIInsightsPage = ({ aiTree, cart, recommendationGraph, onBack }) => {
 
         {/* Recommendation Graph */}
         {recommendationGraph && <RecommendationGraph graphData={recommendationGraph} />}
+
+        {/* Meal Intent Predictor */}
+        {mealPrediction && <MealIntentPredictor prediction={mealPrediction} />}
 
         {/* Decision Flow Tree */}
         <div className="insight-card">

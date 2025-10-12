@@ -259,6 +259,134 @@ def get_recommendation_graph():
     
     return jsonify(graph)
 
+def predict_meal_intent(cart_items):
+    """
+    AI-powered meal intent predictor based on cart items
+    """
+    if not cart_items:
+        return None
+    
+    # Get product names from cart
+    product_names = [item['name'].lower() for item in cart_items]
+    product_set = set(product_names)
+    
+    # Define meal patterns with emojis and confidence
+    patterns = [
+        {
+            'name': 'Sandwich Time',
+            'emoji': '🥪',
+            'keywords': ['bread', 'butter', 'cheese', 'ham', 'turkey', 'lettuce', 'tomato'],
+            'confidence': 0
+        },
+        {
+            'name': 'Breakfast Feast',
+            'emoji': '🍳',
+            'keywords': ['eggs', 'bacon', 'bread', 'butter', 'milk', 'coffee', 'cereals'],
+            'confidence': 0
+        },
+        {
+            'name': 'Pasta Party',
+            'emoji': '🍝',
+            'keywords': ['pasta', 'spaghetti', 'cheese', 'tomato', 'sauce', 'meat'],
+            'confidence': 0
+        },
+        {
+            'name': 'Chicken Dish',
+            'emoji': '🍗',
+            'keywords': ['chicken', 'meat', 'rice', 'vegetables', 'spices', 'oil'],
+            'confidence': 0
+        },
+        {
+            'name': 'Salad Bowl',
+            'emoji': '🥗',
+            'keywords': ['lettuce', 'tomato', 'cucumber', 'vegetables', 'oil', 'vinegar'],
+            'confidence': 0
+        },
+        {
+            'name': 'Pizza Night',
+            'emoji': '🍕',
+            'keywords': ['cheese', 'tomato', 'meat', 'vegetables', 'dough', 'sauce'],
+            'confidence': 0
+        },
+        {
+            'name': 'Baking Session',
+            'emoji': '🧁',
+            'keywords': ['flour', 'sugar', 'eggs', 'butter', 'milk', 'chocolate'],
+            'confidence': 0
+        },
+        {
+            'name': 'Snack Attack',
+            'emoji': '🍿',
+            'keywords': ['chips', 'snack', 'candy', 'chocolate', 'cookies', 'popcorn'],
+            'confidence': 0
+        },
+        {
+            'name': 'Beverages Only',
+            'emoji': '🥤',
+            'keywords': ['juice', 'soda', 'water', 'coffee', 'tea', 'drinks'],
+            'confidence': 0
+        },
+        {
+            'name': 'Healthy Living',
+            'emoji': '💪',
+            'keywords': ['fruit', 'vegetables', 'yogurt', 'nuts', 'berries', 'organic'],
+            'confidence': 0
+        }
+    ]
+    
+    # Calculate confidence for each pattern
+    for pattern in patterns:
+        matches = sum(1 for keyword in pattern['keywords'] if any(keyword in name for name in product_names))
+        if matches > 0:
+            pattern['confidence'] = (matches / len(pattern['keywords'])) * 100
+    
+    # Sort by confidence and get top 3
+    patterns.sort(key=lambda x: x['confidence'], reverse=True)
+    top_predictions = [p for p in patterns if p['confidence'] > 0][:3]
+    
+    if not top_predictions:
+        return {
+            'primary': {
+                'name': 'Mixed Shopping',
+                'emoji': '🛒',
+                'confidence': 100,
+                'description': 'Diverse selection of items'
+            },
+            'alternatives': []
+        }
+    
+    primary = top_predictions[0]
+    alternatives = top_predictions[1:] if len(top_predictions) > 1 else []
+    
+    return {
+        'primary': {
+            'name': primary['name'],
+            'emoji': primary['emoji'],
+            'confidence': round(primary['confidence']),
+            'description': f"Based on {len([k for k in primary['keywords'] if any(k in n for n in product_names)])} matching ingredients"
+        },
+        'alternatives': [
+            {
+                'name': alt['name'],
+                'emoji': alt['emoji'],
+                'confidence': round(alt['confidence'])
+            } for alt in alternatives
+        ]
+    }
+
+@app.route('/api/predict-intent', methods=['POST'])
+def predict_intent():
+    data = request.json
+    cart_items = data.get('cart_items', [])
+    
+    prediction = predict_meal_intent(cart_items)
+    
+    return jsonify({
+        'success': True,
+        'prediction': prediction
+    })
+
+
 
 if __name__ == '__main__':
     # Load models on startup
