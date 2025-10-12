@@ -12,6 +12,7 @@ const App = () => {
   const [showAIInsights, setShowAIInsights] = useState(false);
   const [aiTree, setAiTree] = useState(null);
   const [loadingRecs, setLoadingRecs] = useState({});
+  const [recommendationGraph, setRecommendationGraph] = useState(null);
 
   useEffect(() => {
     fetchProducts();
@@ -52,20 +53,33 @@ const App = () => {
   };
 
   const fetchAIInsights = async () => {
-    try {
-      const cartIds = cart.map(item => item.id);
-      const response = await fetch(`${API_URL}/ai-insights`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cart_items: cartIds })
-      });
-      const data = await response.json();
-      setAiTree(data);
-      setShowAIInsights(true);
-    } catch (error) {
-      console.error('Error:', error);
-    }
-  };
+  try {
+    const cartIds = cart.map(item => item.id);  // BACK TO IDs
+    
+    const response = await fetch(`${API_URL}/ai-insights`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cart_items: cartIds })  // Send IDs
+    });
+    const data = await response.json();
+    setAiTree(data);
+
+    // Also fetch graph with names
+    const cartNames = cart.map(item => item.name);
+    const graphResponse = await fetch(`${API_URL}/recommendation-graph`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cart_items: cartNames })
+    });
+    const graphData = await graphResponse.json();
+    setRecommendationGraph(graphData);
+
+    setShowAIInsights(true);
+  } catch (error) {
+    console.error('Error:', error);
+  }
+};
+
 
   const addToCart = (product) => {
     const existing = cart.find(item => item.id === product.id);
@@ -109,7 +123,7 @@ const App = () => {
   );
 
   if (showAIInsights) {
-    return <AIInsightsPage aiTree={aiTree} cart={cart} onBack={() => setShowAIInsights(false)} />;
+    return <AIInsightsPage aiTree={aiTree} cart={cart} recommendationGraph={recommendationGraph} onBack={() => setShowAIInsights(false)} />;
   }
 
   return (
@@ -270,8 +284,163 @@ const App = () => {
   );
 };
 
+// Recommendation Graph Component
+const RecommendationGraph = ({ graphData }) => {
+  if (!graphData || !graphData.root) return null;
+
+  const getNodeColor = (confidence) => {
+    if (confidence >= 80) return '#f54f70ff'; // Crimson red
+    if (confidence >= 70) return '#8fe9ebff'; // Cyan/turquoise  
+    if (confidence >= 60) return '#e4d68bff'; // Gold
+    return '#A9A9A9'; // Dark gray
+  };
+
+  const numLevel1 = graphData.root.children?.length || 0;
+  const level1Spacing = Math.max(220, 1200 / numLevel1); // Better spacing
+
+  return (
+    <div style={{ 
+      background: 'white',
+      borderRadius: '16px', 
+      padding: '2rem', 
+      marginBottom: '2rem', 
+      boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+      border: '1px solid #e5e7eb'
+    }}>
+      <h3 style={{ 
+        textAlign: 'center', 
+        marginBottom: '0.5rem', 
+        color: '#1f2937',
+        fontSize: '1.5rem',
+        fontWeight: '600'
+      }}>
+        🌳 Recommendation Flow Graph
+      </h3>
+      <p style={{ 
+        textAlign: 'center', 
+        color: '#6b7280', 
+        fontSize: '14px', 
+        marginBottom: '2rem'
+      }}>
+        Hierarchical product associations based on your cart
+      </p>
+      
+      <svg width="100%" height="600" viewBox="0 0 1400 600" preserveAspectRatio="xMidYMid meet" style={{ display: 'block', margin: '0 auto' }}>
+        <defs>
+          <filter id="nodeShadow">
+            <feDropShadow dx="0" dy="2" stdDeviation="4" floodOpacity="0.15"/>
+          </filter>
+        </defs>
+
+        {/* Root Node - Your Cart (Blue border) - LARGER */}
+        <g filter="url(#nodeShadow)">
+          <circle cx="700" cy="60" r="55" fill="white" stroke="#4169E1" strokeWidth="4"/>
+          <circle cx="700" cy="60" r="51" fill="white" stroke="#000" strokeWidth="1.5"/>
+          <text x="700" y="55" textAnchor="middle" fill="#1f2937" fontSize="14" fontWeight="700">
+            🛒 Cart
+          </text>
+          <text x="700" y="72" textAnchor="middle" fill="#6b7280" fontSize="12" fontWeight="500">
+            {graphData.root.items?.length} items
+          </text>
+        </g>
+
+        {/* Level 1 Nodes - LARGER */}
+        {graphData.root.children?.map((child, idx) => {
+          const totalWidth = numLevel1 * level1Spacing;
+          const startX = 700 - totalWidth / 2;
+          const x1 = startX + (idx + 0.5) * level1Spacing;
+          const borderColor = getNodeColor(child.confidence);
+          const numLevel2 = child.children?.length || 0;
+          const level2Spacing = Math.max(120, 380 / (numLevel2 || 1));
+
+          return (
+            <g key={idx}>
+              {/* Connection line from root */}
+              <line 
+                x1="700" 
+                y1="115" 
+                x2={x1} 
+                y2="200" 
+                stroke="#cbd5e1" 
+                strokeWidth="3"
+              />
+              
+              {/* Level 1 Node with colored border - LARGER */}
+              <g filter="url(#nodeShadow)">
+                <circle cx={x1} cy="230" r="50" fill="white" stroke={borderColor} strokeWidth="5"/>
+                <circle cx={x1} cy="230" r="46" fill="white" stroke="#000" strokeWidth="1.9"/>
+                <text x={x1} y="218" textAnchor="middle" fill="#1f2937" fontSize="13" fontWeight="700">
+                  {child.name.length > 14 ? child.name.substring(0, 12) + '..' : child.name}
+                </text>
+                <text x={x1} y="235" textAnchor="middle" fill="#374151" fontSize="12" fontWeight="600">
+                  {child.confidence.toFixed(0)}%
+                </text>
+                <text x={x1} y="250" textAnchor="middle" fill="#6b7280" fontSize="10">
+                  {(child.users_bought / 1000).toFixed(1)}k users
+                </text>
+              </g>
+
+              {/* Level 2 Nodes - LARGER */}
+              {child.children?.map((grandchild, gidx) => {
+                const level2TotalWidth = numLevel2 * level2Spacing;
+                const level2StartX = x1 - level2TotalWidth / 2;
+                const x2 = level2StartX + (gidx + 0.5) * level2Spacing;
+                const gBorderColor = getNodeColor(grandchild.confidence);
+
+                return (
+                  <g key={gidx}>
+                    {/* Connection line from level 1 */}
+                    <line 
+                      x1={x1} 
+                      y1="280" 
+                      x2={x2} 
+                      y2="410" 
+                      stroke="#cbd5e1" 
+                      strokeWidth="2.5"
+                    />
+                    
+                    {/* Level 2 Node with colored border - LARGER */}
+                    <g filter="url(#nodeShadow)">
+                      <circle cx={x2} cy="440" r="40" fill="white" stroke={gBorderColor} strokeWidth="4"/>
+                      <circle cx={x2} cy="440" r="36" fill="white" stroke="#000" strokeWidth="1.6"/>
+                      <text x={x2} y="433" textAnchor="middle" fill="#1f2937" fontSize="11" fontWeight="700">
+                        {grandchild.name.length > 11 ? grandchild.name.substring(0, 9) + '..' : grandchild.name}
+                      </text>
+                      <text x={x2} y="448" textAnchor="middle" fill="#374151" fontSize="10" fontWeight="600">
+                        {grandchild.confidence.toFixed(0)}%
+                      </text>
+                    </g>
+                  </g>
+                );
+              })}
+            </g>
+          );
+        })}
+
+        {/* Legend - LARGER & MORE VISIBLE */}
+        <g transform="translate(500, 555)">
+          <text x="0" y="0" fill="#374151" fontSize="12" fontWeight="700">Confidence:</text>
+          
+          <circle cx="85" cy="-4" r="12" fill="white" stroke="#DC143C" strokeWidth="3.5"/>
+          <circle cx="85" cy="-4" r="9" fill="white" stroke="#000" strokeWidth="1.5"/>
+          <text x="103" y="2" fill="#6b7280" fontSize="11" fontWeight="500">80%+ Excellent</text>
+          
+          <circle cx="220" cy="-4" r="12" fill="white" stroke="#00CED1" strokeWidth="3.5"/>
+          <circle cx="220" cy="-4" r="9" fill="white" stroke="#000" strokeWidth="1.5"/>
+          <text x="238" y="2" fill="#6b7280" fontSize="11" fontWeight="500">70-79% Good</text>
+          
+          <circle cx="355" cy="-4" r="12" fill="white" stroke="#A9A9A9" strokeWidth="3.5"/>
+          <circle cx="355" cy="-4" r="9" fill="white" stroke="#000" strokeWidth="1.5"/>
+          <text x="373" y="2" fill="#6b7280" fontSize="11" fontWeight="500">&lt;70% Fair</text>
+        </g>
+      </svg>
+    </div>
+  );
+};
+
+
 // AI Insights Page Component
-const AIInsightsPage = ({ aiTree, cart, onBack }) => {
+const AIInsightsPage = ({ aiTree, cart, recommendationGraph, onBack }) => {
   if (!aiTree || !aiTree.cart_items) {
     return (
       <div className="ai-insights-page">
@@ -335,6 +504,9 @@ const AIInsightsPage = ({ aiTree, cart, onBack }) => {
             </div>
           </div>
         </div>
+
+        {/* Recommendation Graph */}
+        {recommendationGraph && <RecommendationGraph graphData={recommendationGraph} />}
 
         {/* Decision Flow Tree */}
         <div className="insight-card">
