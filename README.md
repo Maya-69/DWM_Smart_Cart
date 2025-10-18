@@ -149,3 +149,7 @@ If you encounter database errors, delete and reinitialize:
 Remove-Item smartcart.db -ErrorAction SilentlyContinue
 python initialize.py
 ```
+## Contributors :
+1) Mayuresh Sawant  (Linkdin Link : https://www.linkedin.com/in/contact-mayuresh-sawant ) 
+2) Vicky Pukale     (Linkdin Link : https://www.linkedin.com/in/vicky-pukale )
+3) Sunil Saini      
