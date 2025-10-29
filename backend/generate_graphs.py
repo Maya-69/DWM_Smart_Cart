@@ -1,6 +1,7 @@
 """
 Smart Cart - Data Visualization and Analysis Script
 Generates comprehensive graphs for Apriori Algorithm, Association Rules, and EDA
+Enhanced with NetworkX for graph layouts and Plotly for interactive visualizations
 """
 
 import pandas as pd
@@ -13,6 +14,14 @@ import sqlite3
 from datetime import datetime
 import os
 import warnings
+import json
+
+# New imports for interactive graphs
+import networkx as nx
+import plotly.graph_objects as go
+import plotly.express as px
+from plotly.subplots import make_subplots
+
 warnings.filterwarnings('ignore')
 
 # Set style for better-looking plots
@@ -589,6 +598,355 @@ ACCURACY RATING:
         else:
             return "⭐ NEEDS IMPROVEMENT - Consider tuning parameters"
     
+    def plot_interactive_network_graph(self):
+        """Create interactive network graph using NetworkX and Plotly with animations"""
+        print("\n🕸️  Generating Interactive Network Graph...")
+        
+        if not self.association_rules:
+            self.calculate_apriori_metrics()
+        
+        # Create NetworkX graph
+        G = nx.Graph()
+        
+        # Add nodes and edges from top association rules
+        top_rules = self.association_rules[:50]  # Limit to prevent overcrowding
+        
+        for rule in top_rules:
+            ant = rule['antecedent'][:30]  # Truncate long names
+            cons = rule['consequent'][:30]
+            
+            # Add nodes
+            G.add_node(ant, type='product')
+            G.add_node(cons, type='product')
+            
+            # Add edge with weight based on confidence
+            G.add_edge(ant, cons, 
+                      weight=rule['confidence'],
+                      lift=rule['lift'],
+                      support=rule['support'])
+        
+        # Use force-directed layout to prevent overlapping
+        # kamada_kawai gives better spacing than spring layout
+        pos = nx.kamada_kawai_layout(G, scale=2)
+        
+        # Prepare edge traces
+        edge_traces = []
+        
+        for edge in G.edges(data=True):
+            x0, y0 = pos[edge[0]]
+            x1, y1 = pos[edge[1]]
+            
+            weight = edge[2]['weight']
+            lift = edge[2]['lift']
+            
+            # Edge color based on lift (green = strong, yellow = moderate, red = weak)
+            if lift > 1.5:
+                color = 'rgba(46, 204, 113, 0.4)'  # Green
+            elif lift > 1.2:
+                color = 'rgba(241, 196, 15, 0.4)'  # Yellow
+            else:
+                color = 'rgba(231, 76, 60, 0.3)'   # Red
+            
+            edge_trace = go.Scatter(
+                x=[x0, x1, None],
+                y=[y0, y1, None],
+                mode='lines',
+                line=dict(width=weight * 3, color=color),
+                hoverinfo='none',
+                showlegend=False
+            )
+            edge_traces.append(edge_trace)
+        
+        # Prepare node trace
+        node_x = []
+        node_y = []
+        node_text = []
+        node_size = []
+        
+        for node in G.nodes():
+            x, y = pos[node]
+            node_x.append(x)
+            node_y.append(y)
+            
+            # Node size based on degree (how many connections)
+            degree = G.degree(node)
+            node_size.append(10 + degree * 3)
+            
+            # Hover text
+            node_text.append(f"{node}<br>Connections: {degree}")
+        
+        node_trace = go.Scatter(
+            x=node_x,
+            y=node_y,
+            mode='markers+text',
+            text=[n[:15] for n in G.nodes()],  # Shorter labels
+            textposition='top center',
+            textfont=dict(size=9, color='#2c3e50'),
+            hovertext=node_text,
+            hoverinfo='text',
+            marker=dict(
+                size=node_size,
+                color='#3498db',
+                line=dict(width=2, color='#2c3e50'),
+                opacity=0.8
+            ),
+            showlegend=False
+        )
+        
+        # Create figure
+        fig = go.Figure(data=edge_traces + [node_trace])
+        
+        # Update layout with animation
+        fig.update_layout(
+            title=dict(
+                text='Product Association Network Graph<br><sub>Interactive visualization of shopping patterns (drag to explore)</sub>',
+                x=0.5,
+                xanchor='center',
+                font=dict(size=20, color='#2c3e50')
+            ),
+            showlegend=False,
+            hovermode='closest',
+            margin=dict(b=20, l=5, r=5, t=80),
+            xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+            yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+            plot_bgcolor='rgba(240, 248, 255, 0.8)',
+            paper_bgcolor='white',
+            height=800,
+            # Add smooth transitions
+            transition=dict(
+                duration=500,
+                easing='cubic-in-out'
+            )
+        )
+        
+        # Save as HTML
+        output_path = os.path.join(self.output_folder, 'interactive_network_graph.html')
+        fig.write_html(output_path)
+        print(f"✅ Saved: {output_path}")
+        
+        return fig
+    
+    def plot_interactive_association_dashboard(self):
+        """Create interactive dashboard with multiple animated visualizations"""
+        print("\n📊 Generating Interactive Association Dashboard...")
+        
+        if not self.association_rules:
+            self.calculate_apriori_metrics()
+        
+        # Create subplots
+        fig = make_subplots(
+            rows=2, cols=2,
+            subplot_titles=(
+                'Support vs Confidence (Animated)',
+                'Top 10 Rules by Confidence',
+                'Lift Distribution',
+                'Rule Quality Breakdown'
+            ),
+            specs=[
+                [{'type': 'scatter'}, {'type': 'bar'}],
+                [{'type': 'histogram'}, {'type': 'pie'}]
+            ]
+        )
+        
+        # 1. Support vs Confidence scatter (animated)
+        top_100 = self.association_rules[:100]
+        
+        fig.add_trace(
+            go.Scatter(
+                x=[r['support'] * 100 for r in top_100],
+                y=[r['confidence'] * 100 for r in top_100],
+                mode='markers',
+                marker=dict(
+                    size=[r['lift'] * 10 for r in top_100],
+                    color=[r['lift'] for r in top_100],
+                    colorscale='Viridis',
+                    showscale=True,
+                    colorbar=dict(title="Lift", x=0.46),
+                    line=dict(width=1, color='white')
+                ),
+                text=[f"{r['antecedent'][:20]} → {r['consequent'][:20]}" for r in top_100],
+                hovertemplate='<b>%{text}</b><br>Support: %{x:.2f}%<br>Confidence: %{y:.2f}%<extra></extra>',
+                showlegend=False
+            ),
+            row=1, col=1
+        )
+        
+        # 2. Top 10 rules bar chart
+        top_10 = self.association_rules[:10]
+        
+        fig.add_trace(
+            go.Bar(
+                x=[r['confidence'] * 100 for r in top_10],
+                y=[f"Rule {i+1}" for i in range(len(top_10))],
+                orientation='h',
+                marker=dict(
+                    color=[r['lift'] for r in top_10],
+                    colorscale='RdYlGn',
+                    line=dict(width=1, color='black')
+                ),
+                text=[f"{r['confidence']*100:.1f}%" for r in top_10],
+                textposition='auto',
+                hovertemplate='<b>%{y}</b><br>Confidence: %{x:.2f}%<extra></extra>',
+                showlegend=False
+            ),
+            row=1, col=2
+        )
+        
+        # 3. Lift distribution histogram
+        lifts = [r['lift'] for r in self.association_rules]
+        
+        fig.add_trace(
+            go.Histogram(
+                x=lifts,
+                nbinsx=30,
+                marker=dict(
+                    color='rgba(52, 152, 219, 0.7)',
+                    line=dict(width=1, color='black')
+                ),
+                hovertemplate='Lift: %{x:.2f}<br>Count: %{y}<extra></extra>',
+                showlegend=False
+            ),
+            row=2, col=1
+        )
+        
+        # Add vertical line at lift=1
+        fig.add_vline(x=1, line_dash="dash", line_color="red", 
+                     annotation_text="Independence", row=2, col=1)
+        
+        # 4. Rule quality pie chart
+        high_conf = len([r for r in self.association_rules if r['confidence'] >= 0.7])
+        med_conf = len([r for r in self.association_rules if 0.4 <= r['confidence'] < 0.7])
+        low_conf = len([r for r in self.association_rules if r['confidence'] < 0.4])
+        
+        fig.add_trace(
+            go.Pie(
+                labels=['High (≥70%)', 'Medium (40-70%)', 'Low (<40%)'],
+                values=[high_conf, med_conf, low_conf],
+                marker=dict(colors=['#27ae60', '#f39c12', '#e74c3c']),
+                hole=0.4,
+                textinfo='label+percent',
+                hovertemplate='<b>%{label}</b><br>Rules: %{value}<br>Percentage: %{percent}<extra></extra>'
+            ),
+            row=2, col=2
+        )
+        
+        # Update layout
+        fig.update_xaxes(title_text="Support (%)", row=1, col=1)
+        fig.update_yaxes(title_text="Confidence (%)", row=1, col=1)
+        fig.update_xaxes(title_text="Confidence (%)", row=1, col=2)
+        fig.update_xaxes(title_text="Lift", row=2, col=1)
+        fig.update_yaxes(title_text="Frequency", row=2, col=1)
+        
+        fig.update_layout(
+            title_text="<b>Association Rules Analytics Dashboard</b><br><sub>Interactive exploration of recommendation patterns</sub>",
+            height=900,
+            showlegend=False,
+            plot_bgcolor='rgba(248, 249, 250, 0.8)',
+            paper_bgcolor='white',
+            font=dict(family="Arial, sans-serif", size=11),
+            transition=dict(duration=300, easing='cubic-in-out')
+        )
+        
+        # Save as HTML
+        output_path = os.path.join(self.output_folder, 'interactive_dashboard.html')
+        fig.write_html(output_path)
+        print(f"✅ Saved: {output_path}")
+        
+        return fig
+    
+    def plot_animated_recommendation_flow(self, sample_cart_items=None):
+        """Create animated recommendation flow visualization"""
+        print("\n🎬 Generating Animated Recommendation Flow...")
+        
+        if not self.association_rules:
+            self.calculate_apriori_metrics()
+        
+        if sample_cart_items is None:
+            # Use most popular items as sample
+            item_counts = Counter([r['antecedent'] for r in self.association_rules])
+            sample_cart_items = [item[0] for item in item_counts.most_common(3)]
+        
+        # Build recommendation tree
+        frames = []
+        
+        # Frame 1: Cart items only
+        fig = go.Figure()
+        
+        # Create hierarchical layout
+        cart_y = 0
+        rec_level1_y = -1
+        rec_level2_y = -2
+        
+        # Add cart items
+        cart_x = list(range(len(sample_cart_items)))
+        
+        for i, item in enumerate(sample_cart_items):
+            fig.add_trace(go.Scatter(
+                x=[i],
+                y=[cart_y],
+                mode='markers+text',
+                marker=dict(size=40, color='#3498db', line=dict(width=2, color='white')),
+                text=[item[:20]],
+                textposition='top center',
+                name='Cart',
+                showlegend=False
+            ))
+        
+        # Find recommendations for cart items
+        recommendations_level1 = []
+        for cart_item in sample_cart_items:
+            for rule in self.association_rules[:20]:
+                if rule['antecedent'] == cart_item:
+                    recommendations_level1.append({
+                        'item': rule['consequent'],
+                        'conf': rule['confidence'],
+                        'parent': cart_item
+                    })
+        
+        recommendations_level1 = recommendations_level1[:6]  # Limit
+        
+        # Add level 1 recommendations
+        for i, rec in enumerate(recommendations_level1):
+            fig.add_trace(go.Scatter(
+                x=[i * 0.8],
+                y=[rec_level1_y],
+                mode='markers+text',
+                marker=dict(size=30, color='#2ecc71', line=dict(width=2, color='white')),
+                text=[rec['item'][:15]],
+                textposition='bottom center',
+                name=f'Rec: {rec["conf"]*100:.0f}%',
+                showlegend=False
+            ))
+            
+            # Add connecting line
+            parent_idx = sample_cart_items.index(rec['parent']) if rec['parent'] in sample_cart_items else 0
+            fig.add_trace(go.Scatter(
+                x=[parent_idx, i * 0.8],
+                y=[cart_y, rec_level1_y],
+                mode='lines',
+                line=dict(width=2, color='rgba(149, 165, 166, 0.5)', dash='dot'),
+                showlegend=False
+            ))
+        
+        fig.update_layout(
+            title='Recommendation Flow Visualization<br><sub>Product association hierarchy</sub>',
+            xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+            yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+            plot_bgcolor='rgba(236, 240, 241, 0.3)',
+            paper_bgcolor='white',
+            height=600,
+            hovermode='closest',
+            transition=dict(duration=500, easing='cubic-in-out')
+        )
+        
+        # Save
+        output_path = os.path.join(self.output_folder, 'recommendation_flow.html')
+        fig.write_html(output_path)
+        print(f"✅ Saved: {output_path}")
+        
+        return fig
+
+    
     def generate_all_graphs(self):
         """Generate all visualization graphs"""
         print("\n" + "="*70)
@@ -598,19 +956,32 @@ ACCURACY RATING:
         self.load_data()
         self.calculate_apriori_metrics(min_support=0.01, min_confidence=0.3)
         
+        # Static graphs
+        print("\n📈 Generating static visualizations...")
         self.plot_exploratory_analysis()
         self.plot_apriori_accuracy_metrics()
         self.plot_association_rules_network()
         self.plot_recommendation_accuracy()
         
+        # Interactive graphs (new!)
+        print("\n✨ Generating interactive visualizations...")
+        self.plot_interactive_network_graph()
+        self.plot_interactive_association_dashboard()
+        self.plot_animated_recommendation_flow()
+        
         print("\n" + "="*70)
         print("✅ ALL GRAPHS GENERATED SUCCESSFULLY!")
         print("="*70)
         print(f"\nGenerated files in '{self.output_folder}' folder:")
+        print("\n📊 STATIC GRAPHS (PNG):")
         print("  1. exploratory_analysis.png")
         print("  2. apriori_accuracy_metrics.png")
         print("  3. association_rules_analysis.png")
         print("  4. recommendation_accuracy_metrics.png")
+        print("\n✨ INTERACTIVE GRAPHS (HTML - Open in browser):")
+        print("  5. interactive_network_graph.html")
+        print("  6. interactive_dashboard.html")
+        print("  7. recommendation_flow.html")
         print("\n" + "="*70)
 
 
