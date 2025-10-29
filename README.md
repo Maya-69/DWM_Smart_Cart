@@ -489,3 +489,17 @@ All visualizations include light, minimalist animations:
 4. **Referential Integrity**: Checks for orphaned records
 
 ---
+
+## 👥 Contributors
+
+1. **Mayuresh Sawant** - [LinkedIn](https://www.linkedin.com/in/contact-mayuresh-sawant)
+2. **Vicky Pukale** - [LinkedIn](https://www.linkedin.com/in/vicky-pukale)
+3. **Sunil Saini**
+
+---
+
+## 📄 License
+
+This project is created for academic purposes as part of Data Warehouse & Mining (DWM) coursework.
+
+---
